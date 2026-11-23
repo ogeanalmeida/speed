@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Bike Speed</title>
+  <meta name="theme-color" content="#2f2f2f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Bike Speed">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app" id="app" data-screen="goal">
+
+  <header class="topbar">
+    <button class="conn" id="connBtn" data-state="sim" aria-haspopup="dialog">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="connText">Simulação</span>
+    </button>
+    <button class="conn bikebtn" id="bikeBtn" aria-label="Tipo de bike">
+      <span id="bikeBtnText">Aro 29</span>
+    </button>
+    <button class="conn bikebtn" id="backBtn" aria-label="Voltar" hidden>
+      <span>‹ Voltar</span>
+    </button>
+  </header>
+
+  <!-- TELA 1: objetivo do dia -->
+  <main class="screen" id="screenGoal">
+    <section class="card orange" aria-label="Objetivo do dia">
+      <div class="label">Objetivo do dia</div>
+      <div class="big xl"><span class="num" id="goalNum">21</span><span class="unit">km</span></div>
+      <div class="chips">
+        <button class="pair btn" id="goalMinus" aria-label="Diminuir 1 km">
+          <span class="tag">–</span><span class="val"><span class="in"><b>1</b><i>km</i></span></span>
+        </button>
+        <button class="pair btn" id="goalPlus" aria-label="Aumentar 1 km">
+          <span class="tag">+</span><span class="val"><span class="in"><b>1</b><i>km</i></span></span>
+        </button>
+      </div>
+    </section>
+
+    <section class="card dark" aria-label="Metas rápidas">
+      <div class="label">Metas rápidas</div>
+      <div class="presets" id="presets"></div>
+    </section>
+
+    <div class="row">
+      <section class="card dark" aria-label="KM acumulados">
+        <div class="label">KM acumulados</div>
+        <div class="big lg cream"><span class="num" data-bind="accum">0</span><span class="unit">km</span></div>
+      </section>
+      <button class="card outline resetcard" id="resetBtn" aria-label="Zerar KM acumulados">
+        <div class="label">Reiniciar contagem</div>
+        <div class="big lg muted"><span class="num">Zerar</span></div>
+      </button>
+    </div>
+
+    <button class="cta" id="startBtn">Iniciar percurso</button>
+    <p class="note">Dados salvos apenas neste aparelho</p>
+  </main>
+
+  <!-- TELA 2: painel do percurso -->
+  <main class="screen" id="screenRide" hidden>
+    <section class="card orange" aria-label="Velocidade">
+      <div class="label">Velocidade atual</div>
+      <div class="big xl"><span class="num" id="speedNum">0</span><span class="unit">km/h</span></div>
+      <div class="chips">
+        <div class="pair"><span class="tag">Méd</span><span class="val"><span class="in"><b id="avgNum">0</b><i>km/h</i></span></span></div>
+        <div class="pair"><span class="tag">Max</span><span class="val"><span class="in"><b id="maxNum">0</b><i>km/h</i></span></span></div>
+      </div>
+    </section>
+
+    <section class="card dark" aria-label="Distância percorrida">
+      <div class="label">Distância percorrida</div>
+      <div class="big lg cream"><span class="num" id="distNum">0,0</span><span class="unit">km</span></div>
+      <div class="progress" id="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Progresso do objetivo">
+        <div class="track"></div><div class="fill"></div><div class="knob"></div>
+      </div>
+      <div class="chips">
+        <div class="pair"><span class="tag">Rest.</span><span class="val"><span class="in"><b id="restNum">0</b><i>km</i></span></span></div>
+        <div class="pair"><span class="tag">Obj.</span><span class="val"><span class="in"><b id="objNum">21</b><i>km</i></span></span></div>
+      </div>
+    </section>
+
+    <div class="row">
+      <section class="card dark" aria-label="KM acumulados">
+        <div class="label">KM acumulados</div>
+        <div class="big lg cream"><span class="num" data-bind="accum">0</span><span class="unit">km</span></div>
+      </section>
+      <section class="card bat" id="batCard" aria-label="Bateria do ESP32">
+        <div class="label">Bateria</div>
+        <div class="big lg"><span class="num" id="batNum">100</span><span class="unit">%</span></div>
+      </section>
+    </div>
+
+    <button class="finish" id="finishBtn">Finalizar percurso</button>
+  </main>
+
+  <!-- TELA 3: tipo de bike -->
+  <main class="screen" id="screenBike" hidden>
+    <section class="card orange" aria-label="Tipo de bike">
+      <div class="label">Tipo de bike</div>
+      <div class="big xl"><span class="num" id="bikeNum">29</span><span class="unit" id="bikeUnit">aro</span></div>
+      <div class="pair"><span class="tag">Ø</span><span class="val wide"><span class="in"><b id="bikeMm">2300</b><i>mm</i></span></span></div>
+    </section>
+
+    <div class="bikegrid" id="bikeGrid" role="radiogroup" aria-label="Aro da roda"></div>
+
+    <label class="card outline customcard" id="customCard">
+      <span class="custom-title">Personalizado</span>
+      <span class="custom-in"><input id="customMm" type="number" inputmode="numeric" min="1000" max="3000" step="1" placeholder="medir a roda (mm)" aria-label="Circunferência personalizada em mm"></span>
+    </label>
+
+    <button class="cta" id="bikeOk">Confirmar</button>
+    <p class="note">Usado para calcular velocidade e distância</p>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- Folhas (confirmação e ajustes) -->
+  <div class="scrim" id="scrim" hidden></div>
+
+  <section class="sheet" id="confirmSheet" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" hidden>
+    <div class="label" id="confirmTitle">Confirmar</div>
+    <p class="sheet-text" id="confirmText"></p>
+    <div class="chips">
+      <button class="pair btn dark" id="confirmCancel"><span class="tag">Não</span><span class="val"><span class="in"><b>Cancelar</b></span></span></button>
+      <button class="pair btn" id="confirmOk"><span class="tag">Sim</span><span class="val"><span class="in"><b id="confirmOkLabel">Confirmar</b></span></span></button>
+    </div>
+  </section>
+
+  <section class="sheet" id="settingsSheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
+    <div class="label" id="settingsTitle">Conexão e ajustes</div>
+
+    <p class="sheet-text" id="connDetail">Modo simulação: os dados são gerados no próprio app.</p>
+
+    <div class="stack">
+      <button class="pill primary" id="bleBtn">Conectar ESP32 (Bluetooth)</button>
+      <button class="pill" id="simBtn">Usar simulação</button>
+    </div>
+
+    <label class="field">
+      <span class="label">Circunferência da roda (mm)</span>
+      <input id="wheelInput" type="number" inputmode="numeric" min="1000" max="3000" step="1">
+    </label>
+
+    <div class="simonly" id="simOnly">
+      <label class="field">
+        <span class="label">Bateria na simulação: <b id="simBatLabel">100</b>%</span>
+        <input id="simBat" type="range" min="0" max="100" step="1" value="100">
+      </label>
+      <label class="field">
+        <span class="label">Tempo da simulação</span>
+        <select id="simSpeed">
+          <option value="1">Normal (1×)</option>
+          <option value="10">Rápido (10×)</option>
+          <option value="60">Muito rápido (60×)</option>
+        </select>
+      </label>
+    </div>
+
+    <button class="pill" id="settingsClose">Fechar</button>
+  </section>
+
+  <span class="build" id="buildTag" aria-hidden="true"></span>
+</div>
+<script src="build.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
