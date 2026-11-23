@@ -44,7 +44,8 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  const u = new URL(req.url);
+  if (req.method !== 'GET' || u.origin !== self.location.origin || u.pathname.startsWith('/api/')) return;  // /api/ = ESP32 ao vivo, nunca do cache
 
   event.respondWith((async () => {
     const cache = await caches.open(VERSION);

@@ -218,3 +218,6 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .custom-in input { width: 100%; text-align: right; background: transparent; border: 0; outline: 0; color: var(--cream); font-family: var(--display); font-weight: 500; font-size: max(16px, calc(48 * var(--u))); }
 .custom-in input::placeholder { font-family: inherit; font-size: max(11px, calc(28 * var(--u))); text-transform: uppercase; color: rgba(255,255,255,.4); font-weight: 400; }
 .customcard[data-on="true"] { border-color: var(--orange); }
+
+a.pill { display: flex; align-items: center; justify-content: center; text-decoration: none; }
+a.pill[hidden] { display: none; }

@@ -33,6 +33,10 @@
     CMD_WHEEL: 0x03,
   };
 
+  /* Wi-Fi: o app só consegue falar com o ESP32 por Wi-Fi quando é aberto pelo endereço http do próprio ESP32
+     (páginas https não podem chamar endereços http da rede local). */
+  const WIFI_OK = location.protocol === 'http:';
+
   /* ---------------- tipos de bike (circunferência média, mm) ---------------- */
   const BIKES = [
     { id: '29', num: '29', unit: 'aro', mm: 2300 },
@@ -45,7 +49,7 @@
 
   /* ---------------- estado e armazenamento local ---------------- */
   const KEY = 'bikeSpeed.v1';
-  const DEFAULTS = { goalKm: 21, accumM: 0, wheelMm: 2100, bike: '700c', ride: null, mode: 'sim', simBat: 100, simRate: 1 };
+  const DEFAULTS = { goalKm: 21, accumM: 0, wheelMm: 2100, bike: '700c', wifiHost: 'bikespeed.local', ride: null, mode: 'sim', simBat: 100, simRate: 1 };
 
   const num = (v, min, max, fallback) => (Number.isFinite(+v) ? Math.min(max, Math.max(min, +v)) : fallback);
 
@@ -62,7 +66,8 @@
     }
     s.simBat = Math.round(num(s.simBat, 0, 100, 100));
     s.simRate = [1, 10, 60].includes(+s.simRate) ? +s.simRate : 1;
-    s.mode = s.mode === 'ble' ? 'ble' : 'sim';
+    s.wifiHost = String(s.wifiHost || DEFAULTS.wifiHost).toLowerCase().replace(/[^a-z0-9.:-]/g, '').slice(0, 60) || DEFAULTS.wifiHost;
+    s.mode = s.mode === 'ble' ? 'ble' : s.mode === 'usb' ? 'usb' : s.mode === 'wifi' && WIFI_OK ? 'wifi' : 'sim';
     if (s.ride && typeof s.ride === 'object') {
       s.ride = {
         startedAt: s.ride.startedAt || Date.now(),
@@ -357,6 +362,18 @@
   const u16 = (n) => [n & 255, (n >> 8) & 255];
 
   async function sendCommand(bytes) {
+    if (S.mode === 'usb') {
+      if (!usb.writer) return;
+      try { await usb.writer.write(new TextEncoder().encode('C,' + bytes.join(',') + '\n')); }
+      catch (e) { console.warn('Falha ao enviar comando (USB)', e); }
+      return;
+    }
+    if (S.mode === 'wifi') {
+      if (!live.connected) return;
+      try { await fetch('/api/cmd?b=' + bytes.join(','), { method: 'POST' }); }
+      catch (e) { console.warn('Falha ao enviar comando (Wi-Fi)', e); }
+      return;
+    }
     if (!ble.cmd) return;
     const data = Uint8Array.from(bytes);
     try {
@@ -365,6 +382,154 @@
     } catch (e) { console.warn('Falha ao enviar comando', e); }
   }
 
+  /* ---------------- USB (cabo no computador, Web Serial) ----------------
+     Linhas de texto a 115200 baud. Arduino -> app:  T,vel*10,media*10,max*10,metros,bateria,flags
+     App -> Arduino:  C,byte,byte,...   (mesmos comandos do Bluetooth)                          */
+  const usb = { port: null, reader: null, writer: null, on: false };
+  function usbLine(line) {
+    const p = line.trim().split(',');
+    if (p[0] !== 'T' || p.length < 7) return;
+    const n = p.slice(1).map((x) => parseInt(x, 10) || 0);
+    const dv = new DataView(new ArrayBuffer(12));
+    dv.setUint16(0, n[0], true); dv.setUint16(2, n[1], true); dv.setUint16(4, n[2], true);
+    dv.setUint32(6, n[3] >>> 0, true); dv.setUint8(10, n[4]); dv.setUint8(11, n[5]);
+    if (!live.connected) {
+      live.connected = true;
+      updateConn();
+      toast('Arduino conectado (USB)');
+      sendCommand([BLE.CMD_WHEEL, ...u16(S.wheelMm)]);
+    }
+    usb.last = Date.now();
+    onTelemetry({ target: { value: dv } });
+  }
+  async function usbOpen(port) {
+    await port.open({ baudRate: 115200 });
+    usb.port = port;
+    usb.on = true;
+    usb.writer = port.writable.getWriter();
+    S.mode = 'usb';
+    live.connected = false;
+    save();
+    updateConn();
+    (async () => {
+      const dec = new TextDecoder();
+      let buf = '';
+      try {
+        while (usb.on && port.readable) {
+          usb.reader = port.readable.getReader();
+          try {
+            for (;;) {
+              const { value, done } = await usb.reader.read();
+              if (done) break;
+              buf += dec.decode(value, { stream: true });
+              let i;
+              while ((i = buf.indexOf('\n')) >= 0) { usbLine(buf.slice(0, i)); buf = buf.slice(i + 1); }
+              if (buf.length > 400) buf = '';
+            }
+          } finally { usb.reader.releaseLock(); }
+        }
+      } catch (e) { console.debug('usb', e && e.message); }
+      if (usb.on) { await usbClose(); toast('Arduino desconectado (cabo)'); }
+    })();
+  }
+  async function usbClose() {
+    usb.on = false;
+    try { if (usb.reader) await usb.reader.cancel(); } catch (_) { /* ok */ }
+    try { if (usb.writer) { usb.writer.releaseLock(); } } catch (_) { /* ok */ }
+    try { if (usb.port) await usb.port.close(); } catch (_) { /* ok */ }
+    usb.port = usb.reader = usb.writer = null;
+    live.connected = false;
+    updateConn();
+  }
+  async function usbConnect() {
+    if (!navigator.serial) {
+      toast('Este navegador não tem USB Serial. Use o Chrome ou Edge no computador.');
+      return;
+    }
+    wifiStop();
+    bleDisconnect();
+    try {
+      if (usb.port) await usbClose();
+      await usbOpen(await navigator.serial.requestPort());
+      closeSheets();
+    } catch (e) {
+      if (e && e.name === 'NotFoundError') return;
+      console.warn(e);
+      toast('Não consegui abrir a porta USB. Feche o Monitor Serial do Arduino IDE e tente de novo.');
+    }
+  }
+  async function usbAuto() {
+    if (!navigator.serial || S.mode !== 'usb') return;
+    try {
+      const ports = await navigator.serial.getPorts();
+      if (ports[0]) await usbOpen(ports[0]);
+    } catch (e) { console.debug('usb auto', e && e.message); }
+  }
+
+  /* ---------------- Wi-Fi (leitura do ESP32 por HTTP) ---------------- */
+  const wifi = { on: false, fails: 0, timer: 0 };
+  function wifiStop() {
+    wifi.on = false;
+    clearTimeout(wifi.timer);
+  }
+  async function wifiPoll() {
+    if (!wifi.on) return;
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 1500);
+    try {
+      const r = await fetch('/api/t', { cache: 'no-store', signal: ctl.signal });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const buf = await r.arrayBuffer();
+      if (!wifi.on) return;
+      if (!live.connected) {
+        live.connected = true;
+        updateConn();
+        toast('ESP32 conectado (Wi-Fi)');
+        sendCommand([BLE.CMD_WHEEL, ...u16(S.wheelMm)]);
+      }
+      wifi.fails = 0;
+      onTelemetry({ target: { value: new DataView(buf) } });
+    } catch (e) {
+      console.debug('wifi', e && e.message);
+      if (++wifi.fails === 4 && live.connected) {
+        live.connected = false;
+        updateConn();
+        toast('ESP32 sem resposta no Wi-Fi');
+      }
+    } finally {
+      clearTimeout(to);
+      if (wifi.on) wifi.timer = setTimeout(wifiPoll, wifi.fails >= 4 ? 1000 : 250);
+    }
+  }
+  async function wifiConnect(quiet) {
+    if (!WIFI_OK) {
+      // página https: abre o app servido pelo próprio ESP32 (mesmo endereço, sem bloqueio do navegador)
+      const host = ($('wifiHost').value || S.wifiHost || DEFAULTS.wifiHost).trim().toLowerCase().replace(/[^a-z0-9.:-]/g, '');
+      if (!host) return;
+      S.wifiHost = host;
+      save();
+      location.href = 'http://' + host + '/';
+      return;
+    }
+    bleDisconnect();
+    wifiStop();
+    if (usb.on) usbClose();
+    try {
+      const r = await fetch('/api/t', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+    } catch (e) {
+      if (!quiet) toast('Não achei o ESP32 neste endereço. Confira se o celular está no mesmo Wi-Fi.');
+      return;
+    }
+    S.mode = 'wifi';
+    wifi.on = true;
+    wifi.fails = 0;
+    live.connected = false;   // o primeiro retorno do poll marca como conectado
+    save();
+    updateConn();
+    closeSheets();
+    wifiPoll();
+  }
   function onTelemetry(ev) {
     const dv = ev.target.value;
     if (!dv || dv.byteLength < 12) return;
@@ -386,7 +551,6 @@
       sendCommand([BLE.CMD_START, ...u32(S.ride.goalKm * 1000)]);
     }
   }
-
   function onBleDisconnected() {
     live.connected = false;
     ble.cmd = null;
@@ -396,19 +560,33 @@
 
   async function bleConnect() {
     if (!navigator.bluetooth) {
-      toast('Este navegador não tem Bluetooth Web. No Android, use o Chrome.');
+      toast(window.isSecureContext
+        ? 'Este navegador não tem Bluetooth Web. No Android, use o Chrome.'
+        : 'Bluetooth só funciona na versão https do app. Aqui use o Wi-Fi.');
       return;
     }
+    wifiStop();
+    if (usb.on) usbClose();
+    let step = 'busca';
     try {
       const device = await navigator.bluetooth.requestDevice({
         filters: [{ services: [BLE.SERVICE] }, { namePrefix: BLE.NAME_PREFIX }],
         optionalServices: [BLE.SERVICE],
       });
       device.addEventListener('gattserverdisconnected', onBleDisconnected);
-      const server = await device.gatt.connect();
+      step = 'conexão';
+      let server;
+      try { server = await device.gatt.connect(); } catch (_) {
+        await new Promise((r) => setTimeout(r, 800));   // uma segunda tentativa resolve a maioria das falhas
+        server = await device.gatt.connect();
+      }
+      step = 'serviço';
       const service = await server.getPrimaryService(BLE.SERVICE);
+      step = 'telemetria';
       const tel = await service.getCharacteristic(BLE.TELEMETRY);
+      step = 'comando';
       const cmd = await service.getCharacteristic(BLE.COMMAND);
+      step = 'notificações';
       tel.addEventListener('characteristicvaluechanged', onTelemetry);
       await tel.startNotifications();
       ble.device = device;
@@ -421,9 +599,12 @@
       toast('ESP32 conectado');
       closeSheets();
     } catch (e) {
-      if (e && e.name === 'NotFoundError') return; // pessoa cancelou a escolha
+      if (e && e.name === 'NotFoundError' && step === 'busca') return; // pessoa cancelou a escolha
       console.warn(e);
-      toast('Não consegui conectar. Confira o nome e os UUIDs no ESP32.');
+      const dica = step === 'conexão'
+        ? 'Desligue e ligue o Bluetooth do celular e reinicie o ESP32.'
+        : 'Confira os UUIDs do firmware.';
+      toast('Falhou na etapa "' + step + '" (' + ((e && e.name) || 'erro') + '). ' + dica);
     }
   }
 
@@ -435,6 +616,8 @@
   }
 
   function useSimulation() {
+    usbClose();
+    wifiStop();
     bleDisconnect();
     S.mode = 'sim';
     save();
@@ -448,6 +631,18 @@
     if (S.mode === 'sim') {
       state = 'sim'; text = 'Simulação';
       detail = 'Modo simulação: os dados são gerados no próprio app. Use para testar o visual.';
+    } else if (S.mode === 'wifi') {
+      state = live.connected ? 'ble' : 'off';
+      text = live.connected ? 'ESP32 · Wi-Fi' : 'ESP32 sem Wi-Fi';
+      detail = live.connected
+        ? 'Recebendo dados do ESP32 pelo Wi-Fi (celular e ESP32 na mesma rede).'
+        : 'Sem resposta do ESP32. Confira se o celular está no mesmo Wi-Fi que ele.';
+    } else if (S.mode === 'usb') {
+      state = live.connected ? 'ble' : 'off';
+      text = live.connected ? 'Arduino · USB' : 'Arduino sem dados';
+      detail = live.connected
+        ? 'Recebendo dados do Arduino pelo cabo USB.'
+        : 'Aguardando dados do Arduino. Confira o cabo e se o Monitor Serial do IDE está fechado.';
     } else if (live.connected) {
       state = 'ble'; text = 'ESP32 conectado';
       detail = 'Recebendo dados do ESP32 por Bluetooth.';
@@ -459,6 +654,9 @@
     $('connText').textContent = text;
     $('connDetail').textContent = detail;
     $('simOnly').hidden = S.mode !== 'sim';
+    $('wifiHostField').hidden = WIFI_OK;
+    $('panelLink').hidden = !WIFI_OK;
+    $('wifiBtn').textContent = WIFI_OK ? 'Conectar pelo Wi-Fi' : 'Abrir pelo Wi-Fi do ESP32';
   }
 
   /* ---------------- ligações da interface ---------------- */
@@ -530,6 +728,9 @@
     $('scrim').addEventListener('click', closeSheets);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheets(); });
     $('bleBtn').addEventListener('click', bleConnect);
+    $('usbBtn').addEventListener('click', usbConnect);
+    $('wifiHost').value = S.wifiHost;
+    $('wifiBtn').addEventListener('click', () => wifiConnect(false));
     $('simBtn').addEventListener('click', useSimulation);
 
     $('wheelInput').value = S.wheelMm;
@@ -565,6 +766,9 @@
     render();
     if (S.ride) requestWake();
     setInterval(tick, 250);
+    if (WIFI_OK) wifiConnect(true);   // aberto pelo endereço do ESP32: liga o Wi-Fi sozinho
+
+    usbAuto();
 
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
       navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW', e));

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BIKE//ESP32</title>
+<style>
+:root{--bg:#070b07;--card:#0b120b;--line:#1d4d24;--g:#39ff4a;--g2:#2db83d;--dim:#7fbf88;--amb:#ffb347;--red:#ff5a4a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--g);font:15px/1.45 ui-monospace,Menlo,Consolas,monospace;padding:14px;max-width:760px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px}
+h1{font-size:18px;letter-spacing:.2em;margin:0}
+.led{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--red);margin-right:8px}
+.led.on{background:var(--g);box-shadow:0 0 8px var(--g)}
+.card{background:var(--card);border:1px solid var(--line);margin-bottom:14px}
+.card h2{margin:0;background:var(--g2);color:#021003;font-size:14px;letter-spacing:.18em;padding:8px 12px;text-transform:uppercase}
+.card .b{padding:12px}
+.sm{font-size:13px;color:var(--dim);margin:0 0 8px}
+.go{display:block;text-align:center;text-decoration:none;background:var(--g2);color:#021003;font-weight:bold;letter-spacing:.12em;text-transform:uppercase;padding:18px 12px;font-size:17px;margin-bottom:14px}
+.go:active{filter:brightness(.85)}
+table{width:100%;border-collapse:collapse}
+td{padding:3px 0;border-bottom:1px solid #123016}
+td:first-child{color:var(--dim);width:42%}
+input[type=file],input[type=text],input[type=password]{width:100%;background:#050805;border:1px solid var(--line);color:var(--g);padding:10px;font:inherit;margin-bottom:8px}
+button{background:var(--g2);color:#021003;border:0;padding:11px 16px;font:inherit;font-weight:bold;letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+button.alt{background:transparent;color:var(--g);border:1px solid var(--line)}
+button:active{filter:brightness(.85)}
+.prog{height:8px;border:1px solid var(--line);margin-top:10px}
+.prog i{display:block;height:100%;width:0;background:var(--g)}
+.msg{min-height:20px;margin-top:8px;font-size:13px}
+.err{color:var(--red)}.ok{color:var(--g)}.warn{color:var(--amb)}
+details{margin-top:10px;color:var(--dim);font-size:13px}
+summary{cursor:pointer;color:var(--g)}
+ol{padding-left:20px;margin:6px 0}
+code{background:#050805;padding:1px 5px;border:1px solid #123016}
+footer{color:#3d7a46;font-size:12px;text-align:center;margin:18px 0}
+</style>
+</head>
+<body>
+<header><h1>BIKE//ESP32</h1><div><span class="led" id="led"></span><span id="net" class="sm">conectando...</span></div></header>
+
+<a class="go" href="/app">&#9654; Abrir velocímetro</a>
+
+<section class="card"><h2>Status</h2><div class="b"><table>
+<tr><td>Firmware</td><td id="fw">--</td></tr>
+<tr><td>Rede</td><td id="net2">--</td></tr>
+<tr><td>Endereço</td><td id="ip">--</td></tr>
+<tr><td>Ligado há</td><td id="up">--</td></tr>
+<tr><td>Memória livre</td><td id="heap">--</td></tr>
+<tr><td>Bluetooth</td><td id="ble">--</td></tr>
+<tr><td>Roda</td><td id="wheel">--</td></tr>
+<tr><td>Percurso</td><td id="ride">--</td></tr>
+<tr><td>Velocidade</td><td id="spd">--</td></tr>
+</table></div></section>
+
+<section class="card"><h2>Firmware // OTA</h2><div class="b">
+<p class="sm">Envie um <code>.bin</code> novo pelo Wi-Fi. Sem cabo, sem BOOT.</p>
+<input type="file" id="fwFile" accept=".bin">
+<input type="password" id="fwPass" placeholder="senha OTA" autocomplete="off">
+<button onclick="enviarFw()">Gravar firmware</button>
+<div class="prog"><i id="fwProg"></i></div>
+<div class="msg" id="fwMsg"></div>
+<details><summary>Como gerar o .bin</summary>
+<ol>
+<li>Arduino IDE: abra o <code>bike_speed_esp32</code> (com o <code>webapp.h</code> na mesma pasta)</li>
+<li>Placa <b>ESP32 Dev Module</b></li>
+<li><b>Sketch &rsaquo; Exportar Binário Compilado</b> e depois <b>Mostrar Pasta do Sketch</b> &rsaquo; <code>build</code></li>
+<li>Use o arquivo <code>bike_speed_esp32.ino.bin</code> (não o bootloader, partitions nem merged)</li>
+</ol>
+<p class="sm">Ou grave direto pelo Arduino IDE: <b>Ferramentas &rsaquo; Porta &rsaquo; bikespeed (rede)</b> e Carregar (mesma senha).</p>
+<p class="sm warn">Mantenha o código do painel e o OTA no novo firmware, senão a gravação por Wi-Fi deixa de funcionar.</p>
+</details></div></section>
+
+<section class="card"><h2>Wi-Fi de casa</h2><div class="b">
+<p class="sm">Troca a rede em que o ESP32 entra. Usa a senha OTA acima.</p>
+<input type="text" id="wSsid" placeholder="nome da rede" autocomplete="off" autocapitalize="off">
+<input type="password" id="wPass" placeholder="senha da rede" autocomplete="off">
+<button class="alt" onclick="salvarWifi()">Salvar e reiniciar</button>
+<button class="alt" onclick="reiniciar()">Reiniciar</button>
+<div class="msg" id="wMsg"></div>
+</div></section>
+
+<footer>BIKE//ESP32 &middot; <a href="/api/status" style="color:inherit">/api/status</a></footer>
+
+<script>
+const $=id=>document.getElementById(id);
+const auth=()=>({'Authorization':'Basic '+btoa('admin:'+$('fwPass').value)});
+function up(s){const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return(d?d+'d ':'')+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+async function status(){
+  try{
+    const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw 0;const s=await r.json();
+    $('led').className='led on';$('net').textContent='ONLINE';
+    $('fw').textContent='v'+s.versao+' · '+s.build;
+    $('net2').textContent=s.ssid+' ('+s.rssi+' dBm)';
+    $('ip').textContent=s.ip+' · bikespeed.local';
+    $('up').textContent=up(s.up);
+    $('heap').textContent=Math.round(s.heap/1024)+' KB';
+    $('ble').textContent=s.ble?'conectado':'aguardando';
+    $('wheel').textContent=s.wheel+' mm';
+    $('ride').textContent=s.running?'em andamento · '+(s.dist/1000).toFixed(2).replace('.',',')+' km':'parado';
+    $('spd').textContent=s.speed.toFixed(1).replace('.',',')+' km/h';
+  }catch(e){$('led').className='led';$('net').textContent='SEM RESPOSTA'}
+}
+function enviarFw(){
+  const f=$('fwFile').files[0],m=$('fwMsg');
+  if(!f){m.className='msg err';m.textContent='escolha um arquivo .bin';return}
+  if(!/\.bin$/i.test(f.name)){m.className='msg err';m.textContent='o arquivo precisa ser .bin';return}
+  if(/bootloader|partitions|merged/i.test(f.name)){m.className='msg err';m.textContent='use o NOME.ino.bin (não bootloader, partitions nem merged)';return}
+  const fd=new FormData();fd.append('firmware',f,f.name);const x=new XMLHttpRequest();
+  x.open('POST','/update');const a=auth();for(const k in a)x.setRequestHeader(k,a[k]);
+  x.upload.onprogress=e=>{if(e.lengthComputable){const p=Math.round(e.loaded/e.total*100);$('fwProg').style.width=p+'%';m.className='msg warn';m.textContent='enviando '+p+'%'}};
+  x.onload=()=>{if(x.status===200){m.className='msg ok';m.textContent='OK! Gravado. Reiniciando...';setTimeout(()=>location.reload(),12000)}else{m.className='msg err';m.textContent='falhou: '+(x.status===401?'senha OTA errada':x.responseText)}};
+  x.onerror=()=>{m.className='msg err';m.textContent='conexão perdida'};
+  m.className='msg warn';m.textContent='enviando '+f.name+' ('+Math.round(f.size/1024)+' KB)...';x.send(fd);
+}
+async function salvarWifi(){
+  const m=$('wMsg'),s=$('wSsid').value.trim();
+  if(!s){m.className='msg err';m.textContent='digite o nome da rede';return}
+  if(!confirm('Salvar "'+s+'" e reiniciar o ESP32?'))return;
+  try{
+    const r=await fetch('/api/wifi',{method:'POST',headers:auth(),body:new URLSearchParams({ssid:s,pass:$('wPass').value})});
+    if(r.status===401){m.className='msg err';m.textContent='senha OTA errada';return}
+    m.className='msg ok';m.textContent='Salvo. Reiniciando... reconecte no endereço novo se mudou de rede.';
+  }catch(e){m.className='msg err';m.textContent='falhou: '+e}
+}
+async function reiniciar(){
+  const m=$('wMsg');if(!confirm('Reiniciar o ESP32?'))return;
+  try{const r=await fetch('/api/reboot',{method:'POST',headers:auth()});
+    if(r.status===401){m.className='msg err';m.textContent='senha OTA errada';return}
+    m.className='msg ok';m.textContent='Reiniciando...';setTimeout(()=>location.reload(),9000)}catch(e){m.className='msg err';m.textContent='falhou: '+e}
+}
+status();setInterval(status,2000);
+</script>
+</body>
+</html>

@@ -141,9 +141,17 @@
     <p class="sheet-text" id="connDetail">Modo simulação: os dados são gerados no próprio app.</p>
 
     <div class="stack">
-      <button class="pill primary" id="bleBtn">Conectar ESP32 (Bluetooth)</button>
+      <button class="pill primary" id="usbBtn">Conectar por cabo USB (computador)</button>
+      <button class="pill primary" id="bleBtn">Conectar por Bluetooth</button>
+      <button class="pill primary" id="wifiBtn">Conectar pelo Wi-Fi</button>
+      <a class="pill" id="panelLink" href="/" hidden>Painel do ESP32 (atualizar firmware)</a>
       <button class="pill" id="simBtn">Usar simulação</button>
     </div>
+
+    <label class="field" id="wifiHostField">
+      <span class="label">Endereço do ESP32 no Wi-Fi</span>
+      <input id="wifiHost" type="text" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="bikespeed.local">
+    </label>
 
     <label class="field">
       <span class="label">Circunferência da roda (mm)</span>
