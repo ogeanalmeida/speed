@@ -20,6 +20,13 @@
     - Não precisa instalar bibliotecas: BLE e Preferences já vêm no pacote.
     - A pasta do sketch precisa se chamar bike_speed_esp32.
 
+  Cabo USB (além do Bluetooth e do Wi-Fi):
+    - O app (Chrome/Edge no computador) lê o ESP32 pelo cabo: engrenagem > "Conectar por cabo USB".
+      O ESP32 envia a cada 0,2 s a linha  T,vel*10,media*10,max*10,metros,bateria,flags  (115200 baud)
+      e aceita  C,1,b0,b1,b2,b3 / C,2 / C,3,b0,b1  (mesmos comandos do Bluetooth).
+    - Feche o Monitor Serial do Arduino IDE antes de conectar o app (ele ocupa a porta).
+      As linhas de texto "vel ... km/h" do Monitor Serial continuam saindo e o app ignora.
+
   Wi-Fi do dia a dia (além do Bluetooth):
     - Informe o Wi-Fi da sua casa em WIFI_SSID / WIFI_PASS abaixo (ou pela página de atualização, veja adiante).
     - Com o celular na mesma rede, abra http://bikespeed.local (ou o IP que aparece no Monitor Serial).
@@ -82,7 +89,7 @@ const int PIN_BATTERY = 34;
 const char* WIFI_SSID = "";
 const char* WIFI_PASS = "";
 const char* OTA_PASSWORD = "bike1234";   // senha para gravar firmware pelo painel e pelo Arduino IDE
-#define FW_VERSION "1.4"
+#define FW_VERSION "1.5"
 const char* AP_SSID   = "BikeSpeed-Update";
 const char* AP_PASS   = "bikespeed1";
 const int   PIN_BOOT  = 0;               // botão BOOT da placa
@@ -143,6 +150,34 @@ class ServerCb : public BLEServerCallbacks {
     BLEDevice::startAdvertising();  // volta a ficar visível para reconectar
   }
 };
+
+void queueCommand(const uint8_t* d, size_t n);
+
+// Cabo USB: recebe linhas "C,1,16,39,0,0" e vira o mesmo comando do Bluetooth
+void serialCommands() {
+  static char buf[40];
+  static uint8_t n = 0;
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\n' || c == '\r') {
+      buf[n] = 0;
+      if (n >= 3 && buf[0] == 'C' && buf[1] == ',') {
+        uint8_t b[8];
+        uint8_t k = 0;
+        const char* p = buf + 2;
+        while (*p && k < 8) {
+          b[k++] = (uint8_t)atoi(p);
+          while (*p && *p != ',') p++;
+          if (*p) p++;
+        }
+        queueCommand(b, k);
+      }
+      n = 0;
+    } else if (n < sizeof(buf) - 1) {
+      buf[n++] = c;
+    }
+  }
+}
 
 void queueCommand(const uint8_t* d, size_t n) {
   if (!d || n < 1) return;
@@ -504,9 +539,11 @@ void loop() {
 
   static uint32_t lastTick = 0;
   static uint32_t lastPrint = 0;
+  static uint32_t lastSerialT = 0;
   static uint8_t battery = 100;
   static uint32_t lastBattery = 0;
 
+  serialCommands();
   handleCommands();
 
   uint32_t nowMs = millis();
@@ -553,6 +590,12 @@ void loop() {
   if (bleConnected && telemetryChar) {
     telemetryChar->setValue(telem, sizeof(telem));
     telemetryChar->notify();
+  }
+
+  if (nowMs - lastSerialT >= 200) {   // telemetria pelo cabo USB (o app lê estas linhas)
+    lastSerialT = nowMs;
+    Serial.printf("T,%u,%u,%u,%u,%u,%u\n", (unsigned)(telem[0] | (telem[1] << 8)), (unsigned)(telem[2] | (telem[3] << 8)),
+                  (unsigned)(telem[4] | (telem[5] << 8)), (unsigned)(uint32_t)distM, (unsigned)battery, (unsigned)telem[11]);
   }
 
   if (nowMs - lastPrint > 1000) {

@@ -396,7 +396,7 @@
     if (!live.connected) {
       live.connected = true;
       updateConn();
-      toast('Arduino conectado (USB)');
+      toast('ESP32 conectado (USB)');
       sendCommand([BLE.CMD_WHEEL, ...u16(S.wheelMm)]);
     }
     usb.last = Date.now();
@@ -429,7 +429,7 @@
           } finally { usb.reader.releaseLock(); }
         }
       } catch (e) { console.debug('usb', e && e.message); }
-      if (usb.on) { await usbClose(); toast('Arduino desconectado (cabo)'); }
+      if (usb.on) { await usbClose(); toast('Placa desconectada (cabo)'); }
     })();
   }
   async function usbClose() {
@@ -639,10 +639,10 @@
         : 'Sem resposta do ESP32. Confira se o celular está no mesmo Wi-Fi que ele.';
     } else if (S.mode === 'usb') {
       state = live.connected ? 'ble' : 'off';
-      text = live.connected ? 'Arduino · USB' : 'Arduino sem dados';
+      text = live.connected ? 'ESP32 · USB' : 'USB sem dados';
       detail = live.connected
-        ? 'Recebendo dados do Arduino pelo cabo USB.'
-        : 'Aguardando dados do Arduino. Confira o cabo e se o Monitor Serial do IDE está fechado.';
+        ? 'Recebendo dados da placa pelo cabo USB.'
+        : 'Aguardando dados da placa. Confira o cabo e se o Monitor Serial do IDE está fechado.';
     } else if (live.connected) {
       state = 'ble'; text = 'ESP32 conectado';
       detail = 'Recebendo dados do ESP32 por Bluetooth.';

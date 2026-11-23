@@ -8,14 +8,14 @@ Tudo fica no aparelho (localStorage). Nada vai para a nuvem.
 O app lê um Arduino ligado por cabo ao computador usando **Web Serial** (Chrome ou Edge no Mac/PC;
 precisa de https, como no GitHub Pages, ou localhost). Não funciona no Safari nem no iPhone.
 
-1. Grave `firmware/bike_speed_usb/bike_speed_usb.ino` no Arduino (Uno/Nano/Mega). Reed entre o **pino 2** e o **GND**.
+1. Placa: **ESP32** com `firmware/bike_speed_esp32/bike_speed_esp32.ino` (v1.5, reed no GPIO27) ou, para teste, **Arduino Uno/Nano** com `firmware/bike_speed_usb/bike_speed_usb.ino` (reed no pino 2). As duas falam o mesmo protocolo.
 2. Feche o Monitor Serial do Arduino IDE (ele ocupa a porta).
 3. No app: engrenagem > **Conectar por cabo USB (computador)** > escolha a porta (`usbmodem…`).
 4. Nas próximas vezes o app reconecta sozinho se a porta já foi autorizada.
 
 Protocolo (texto, 115200 baud): `T,vel*10,media*10,max*10,metros,bateria,flags` (Arduino → app, 5×/s)
 e `C,1,b0,b1,b2,b3` / `C,2` / `C,3,b0,b1` (app → Arduino), os mesmos comandos do Bluetooth.
-O firmware ESP32 (Bluetooth/Wi-Fi) continua em `firmware/bike_speed_esp32/`.
+O mesmo firmware ESP32 atende Bluetooth, Wi-Fi e cabo ao mesmo tempo.
 
 ## Publicar no GitHub Pages
 
